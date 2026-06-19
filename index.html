@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Harness EDA Advisor</title>
+<!-- Libraries loaded with defer — file processing waits until both are ready -->
+<script>
+// Dynamically load SheetJS and Chart.js, then signal ready
+window._libsReady = false;
+window._pendingFile = null;
+function _loadScript(src, cb) {
+  var s = document.createElement('script');
+  s.src = src;
+  s.onload = cb;
+  s.onerror = function() {
+    document.getElementById('lmsg').textContent = 'CDN load failed. Check internet connection.';
+    document.getElementById('loading-overlay').classList.remove('show');
+    alert('Could not load required libraries (SheetJS / Chart.js).\n\nMake sure you are connected to the internet when first opening this file, or deploy to Railway to use without internet.');
+  };
+  document.head.appendChild(s);
+}
+window.addEventListener('load', function() {
+  _loadScript('https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js', function() {
+    _loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js', function() {
+      window._libsReady = true;
+      // If user dropped a file before libs finished loading, process it now
+      if (window._pendingFile) { doFile(window._pendingFile); window._pendingFile = null; }
+    });
+  });
+});
+</script>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;--accent:#58a6ff;--accent2:#3fb950;--warn:#d29922;--danger:#f85149;--text:#e6edf3;--muted:#8b949e;--purple:#bc8cff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+#app{display:flex;height:100vh;overflow:hidden;}
+#sidebar{width:240px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;}
+#main{flex:1;overflow-y:auto;}
+.sidebar-logo{padding:20px 16px 12px;border-bottom:1px solid var(--border);}
+.sidebar-logo h1{font-size:14px;font-weight:700;color:var(--accent);}
+.sidebar-logo p{font-size:11px;color:var(--muted);margin-top:2px;}
+.nav-section{padding:8px 0;border-bottom:1px solid var(--border);}
+.nav-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;padding:0 16px 4px;}
+.nav-item{display:flex;align-items:center;gap:10px;padding:7px 16px;cursor:pointer;font-size:13px;color:var(--muted);transition:all .15s;border-left:2px solid transparent;}
+.nav-item:hover{color:var(--text);background:var(--surface2);}
+.nav-item.active{color:var(--accent);border-left-color:var(--accent);background:rgba(88,166,255,.08);}
+.nav-badge{margin-left:auto;font-size:10px;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--muted);}
+.nav-badge.ok{background:rgba(63,185,80,.2);color:var(--accent2);}
+.nav-badge.warn{background:rgba(210,153,34,.2);color:var(--warn);}
+.nav-badge.fail{background:rgba(248,81,73,.2);color:var(--danger);}
+#upload-zone{padding:14px;border-bottom:1px solid var(--border);}
+.drop-zone{border:2px dashed var(--border);border-radius:8px;padding:16px 10px;text-align:center;cursor:pointer;transition:all .2s;}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);background:rgba(88,166,255,.05);}
+.drop-zone .dz-icon{font-size:22px;margin-bottom:6px;}
+.drop-zone p{font-size:11px;color:var(--muted);line-height:1.4;}
+#file-input{display:none;}
+.sidebar-status{padding:14px;margin-top:auto;border-top:1px solid var(--border);}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:6px;}
+.status-dot.ready{background:var(--accent2);}
+#progress-wrap{display:none;padding:8px 14px;}
+.prog-track{background:var(--surface2);border-radius:4px;height:5px;overflow:hidden;margin-top:4px;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));border-radius:4px;transition:width .3s;width:0%;}
+#loading-overlay{display:none;position:fixed;inset:0;background:rgba(13,17,23,.9);z-index:999;align-items:center;justify-content:center;flex-direction:column;gap:14px;}
+#loading-overlay.show{display:flex;}
+.spinner{width:44px;height:44px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.loader-msg{font-size:14px;color:var(--muted);}
+.ls{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;}
+.ls.done{color:var(--accent2);}
+.ls.active{color:var(--accent);}
+.page{display:none;padding:26px 30px;}
+.page.active{display:block;}
+.ph{margin-bottom:20px;}
+.ph h2{font-size:21px;font-weight:700;}
+.ph p{font-size:13px;color:var(--muted);margin-top:4px;}
+.ptag{display:inline-block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;padding:2px 8px;border-radius:4px;margin-bottom:6px;background:rgba(88,166,255,.15);color:var(--accent);}
+#page-landing{display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;}
+.landing-inner{max-width:580px;padding:20px;}
+.landing-inner h1{font-size:30px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.landing-inner>p{color:var(--muted);font-size:14px;margin:10px 0 24px;line-height:1.6;}
+.lf-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;text-align:left;margin-bottom:24px;}
+.lf-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;}
+.lf-icon{font-size:18px;margin-bottom:4px;}
+.lf-item strong{display:block;color:var(--text);margin-bottom:2px;}
+.lf-item span{color:var(--muted);}
+.dzl{border:2px dashed var(--border);border-radius:12px;padding:30px;cursor:pointer;transition:all .2s;}
+.dzl:hover,.dzl.drag-over{border-color:var(--accent);background:rgba(88,166,255,.05);}
+.dzl .big-icon{font-size:34px;margin-bottom:8px;}
+.dzl p{color:var(--muted);font-size:13px;}
+.cg{display:grid;gap:14px;}
+.c2{grid-template-columns:repeat(2,1fr);}
+.c3{grid-template-columns:repeat(3,1fr);}
+.c4{grid-template-columns:repeat(4,1fr);}
+.c5{grid-template-columns:repeat(5,1fr);}
+.kcard{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;}
+.kcard .klbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
+.kcard .kval{font-size:24px;font-weight:700;}
+.kcard .ksub{font-size:11px;color:var(--muted);margin-top:3px;}
+.kcard .kico{font-size:20px;float:right;margin-top:-2px;opacity:.6;}
+.ka{border-top:3px solid var(--accent);}
+.kg{border-top:3px solid var(--accent2);}
+.kp{border-top:3px solid var(--purple);}
+.kw{border-top:3px solid var(--warn);}
+.kd{border-top:3px solid var(--danger);}
+.sec{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:18px;}
+.sec h3{font-size:13px;font-weight:600;margin-bottom:14px;}
+.tl-item{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);margin-bottom:8px;}
+.tl-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;margin-top:3px;}
+.tl-dot.pass{background:var(--accent2);}
+.tl-dot.warn{background:var(--warn);}
+.tl-dot.fail{background:var(--danger);}
+.tl-content{flex:1;}
+.tl-title{font-size:13px;font-weight:600;margin-bottom:3px;display:flex;align-items:center;gap:8px;}
+.tlb{font-size:10px;padding:1px 7px;border-radius:10px;font-weight:600;}
+.tlb.pass{background:rgba(63,185,80,.2);color:var(--accent2);}
+.tlb.warn{background:rgba(210,153,34,.2);color:var(--warn);}
+.tlb.fail{background:rgba(248,81,73,.2);color:var(--danger);}
+.tl-obs{font-size:12px;color:var(--muted);margin-bottom:3px;}
+.tl-act{font-size:12px;color:var(--accent);}
+.chart-wrap{position:relative;height:250px;}
+.dtable{width:100%;border-collapse:collapse;font-size:12px;}
+.dtable th{text-align:left;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:1px solid var(--border);}
+.dtable td{padding:9px 10px;border-bottom:1px solid rgba(48,54,61,.5);}
+.cat-pill{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:500;}
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.fcard{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;}
+.fcard .fhdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px;}
+.fcard .fname{font-size:12px;font-weight:600;}
+.fcb{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;}
+.fcb.high{background:rgba(63,185,80,.2);color:var(--accent2);}
+.fcb.suspicious{background:rgba(210,153,34,.2);color:var(--warn);}
+.fcb.leakage{background:rgba(248,81,73,.2);color:var(--danger);}
+.fcb.low{background:rgba(139,148,158,.2);color:var(--muted);}
+.fcb.model{background:rgba(88,166,255,.2);color:var(--accent);}
+.fcard .freason{font-size:11px;color:var(--muted);margin-bottom:6px;line-height:1.4;}
+.cbar{height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
+.cfill{height:100%;border-radius:2px;}
+.tcard{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:10px;}
+.tcard .thdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;}
+.tcard .tname{font-size:14px;font-weight:700;}
+.tcard .tformula{font-family:monospace;font-size:12px;background:var(--bg);padding:5px 9px;border-radius:5px;margin-bottom:7px;color:var(--accent);}
+.tcard .treason{font-size:12px;color:var(--muted);line-height:1.5;}
+.cbadge{font-size:11px;padding:2px 9px;border-radius:10px;font-weight:600;}
+.ch{background:rgba(63,185,80,.2);color:var(--accent2);}
+.cm{background:rgba(210,153,34,.2);color:var(--warn);}
+.cl{background:rgba(248,81,73,.2);color:var(--danger);}
+.rs{display:flex;gap:14px;margin-bottom:14px;}
+.rsn{width:30px;height:30px;background:var(--accent);color:#0d1117;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;}
+.rsb{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;}
+.rstitle{font-size:13px;font-weight:600;margin-bottom:3px;}
+.rswhy{font-size:11px;color:var(--muted);margin-bottom:7px;line-height:1.5;}
+.rsmeta{display:flex;gap:8px;flex-wrap:wrap;}
+.rstag{font-size:10px;padding:2px 7px;border-radius:4px;background:var(--surface);border:1px solid var(--border);color:var(--muted);}
+.rstag.ph{border-color:var(--danger);color:var(--danger);}
+.rstag.pm{border-color:var(--warn);color:var(--warn);}
+.rstag.pl{border-color:var(--accent2);color:var(--accent2);}
+.fndcard{background:var(--surface2);border-left:3px solid;border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:8px;}
+.fndcard.opportunity{border-color:var(--accent2);}
+.fndcard.risk{border-color:var(--danger);}
+.fndcard.quality{border-color:var(--warn);}
+.fndcard.analytical{border-color:var(--purple);}
+.fndcard.business{border-color:var(--accent);}
+.fndtitle{font-size:12px;font-weight:600;margin-bottom:3px;}
+.fnddetail{font-size:11px;color:var(--muted);line-height:1.5;}
+.fndact{font-size:11px;color:var(--accent);margin-top:5px;}
+.fndmeta{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+.fndtag{font-size:10px;padding:1px 6px;border-radius:8px;background:var(--surface);border:1px solid var(--border);color:var(--muted);}
+.hmcell{border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;margin:3px;padding:4px 6px;min-width:55px;}
+.evtable{width:100%;font-size:11px;border-collapse:collapse;}
+.evtable td,.evtable th{padding:7px 10px;border-bottom:1px solid var(--border);}
+.evtable th{color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:.5px;}
+.expbtn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer;color:var(--text);margin-right:8px;}
+.expbtn:hover{border-color:var(--accent);color:var(--accent);}
+.tabs{display:flex;gap:2px;margin-bottom:16px;border-bottom:1px solid var(--border);}
+.tbtn{padding:7px 14px;font-size:12px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;background:none;border-top:none;border-left:none;border-right:none;}
+.tbtn.active{color:var(--accent);border-bottom-color:var(--accent);}
+.tcontent{display:none;}
+.tcontent.active{display:block;}
+.empty-st{text-align:center;padding:60px 20px;color:var(--muted);}
+.empty-st .ei{font-size:36px;margin-bottom:10px;}
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+@media(max-width:900px){.c4,.c5{grid-template-columns:repeat(2,1fr);}.feat-grid{grid-template-columns:1fr 1fr;}}
+</style>
+</head>
+<body>
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loader-msg" id="lmsg">Analysing...</div>
+  <div style="display:flex;flex-direction:column;gap:5px" id="lsteps">
+    <div class="ls" id="ls1">⊙ Reading file</div>
+    <div class="ls" id="ls2">⊙ Classifying columns</div>
+    <div class="ls" id="ls3">⊙ Quality checks</div>
+    <div class="ls" id="ls4">⊙ Detecting claims</div>
+    <div class="ls" id="ls5">⊙ Discovering targets</div>
+    <div class="ls" id="ls6">⊙ Scoring features</div>
+    <div class="ls" id="ls7">⊙ Generating EDA roadmap</div>
+  </div>
+</div>
+<div id="app">
+  <aside id="sidebar">
+    <div class="sidebar-logo"><h1>⬡ Harness EDA</h1><p>AI-Assisted Data Discovery</p></div>
+    <div id="upload-zone">
+      <div class="drop-zone" id="dzs" onclick="document.getElementById('file-input').click()">
+        <div class="dz-icon">📂</div>
+        <p><strong>Upload Dataset</strong><br>CSV or Excel — large files OK</p>
+      </div>
+      <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+      <div id="progress-wrap">
+        <div style="font-size:11px;color:var(--muted)" id="plabel">Reading...</div>
+        <div class="prog-track"><div class="prog-fill" id="pfill"></div></div>
+      </div>
+    </div>
+    <nav>
+      <div class="nav-section">
+        <div class="nav-label">Overview</div>
+        <div class="nav-item active" onclick="showPage('overview')"><span>📊</span>Executive Overview<span class="nav-badge" id="b-overview">—</span></div>
+        <div class="nav-item" onclick="showPage('anatomy')"><span>🔬</span>Dataset Anatomy<span class="nav-badge" id="b-anatomy">—</span></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Assessment</div>
+        <div class="nav-item" onclick="showPage('quality')"><span>✅</span>Data Quality<span class="nav-badge" id="b-quality">—</span></div>
+        <div class="nav-item" onclick="showPage('coverage')"><span>🗺️</span>Coverage Intel<span class="nav-badge" id="b-coverage">—</span></div>
+        <div class="nav-item" onclick="showPage('claims')"><span>💊</span>Claims Intel<span class="nav-badge" id="b-claims">—</span></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Discovery</div>
+        <div class="nav-item" onclick="showPage('targets')"><span>🎯</span>Target Discovery<span class="nav-badge" id="b-targets">—</span></div>
+        <div class="nav-item" onclick="showPage('features')"><span>⭐</span>Feature Discovery<span class="nav-badge" id="b-features">—</span></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Advisory</div>
+        <div class="nav-item" onclick="showPage('advisor')"><span>🧠</span>EDA Advisor<span class="nav-badge" id="b-advisor">—</span></div>
+        <div class="nav-item" onclick="showPage('findings')"><span>🔍</span>Key Findings<span class="nav-badge" id="b-findings">—</span></div>
+        <div class="nav-item" onclick="showPage('evidence')"><span>📋</span>Evidence Pack<span class="nav-badge" id="b-evidence">—</span></div>
+      </div>
+    </nav>
+    <div class="sidebar-status"><small><span class="status-dot" id="sdot"></span><span id="stext" style="font-size:12px;color:var(--muted)">No dataset loaded</span></small></div>
+  </aside>
+  <main id="main">
+    <div id="page-landing" class="page active">
+      <div class="landing-inner">
+        <div style="font-size:44px;margin-bottom:14px">⬡</div>
+        <h1>Harness EDA Advisor</h1>
+        <p>Drop any CSV or Excel file. Your browser analyses it instantly — no server, no upload. Full Senior Data Scientist review before EDA begins.</p>
+        <div class="lf-grid">
+          <div class="lf-item"><div class="lf-icon">📊</div><strong>Executive Snapshot</strong><span>Instant portfolio KPIs</span></div>
+          <div class="lf-item"><div class="lf-icon">🔬</div><strong>Dataset Anatomy</strong><span>Auto-classify every column</span></div>
+          <div class="lf-item"><div class="lf-icon">✅</div><strong>Quality Assessment</strong><span>7 traffic-light checks</span></div>
+          <div class="lf-item"><div class="lf-icon">🎯</div><strong>Target Discovery</strong><span>Candidates with confidence scores</span></div>
+          <div class="lf-item"><div class="lf-icon">⭐</div><strong>Feature Scoring</strong><span>High-value, leakage, suspicious flags</span></div>
+          <div class="lf-item"><div class="lf-icon">🧠</div><strong>EDA Roadmap</strong><span>Dataset-driven analysis path</span></div>
+        </div>
+        <div class="dzl" id="dzl" onclick="document.getElementById('file-input').click()">
+          <div class="big-icon">📂</div>
+          <p><strong>Drop your CSV or Excel file here</strong><br>or click to browse — processed entirely in your browser</p>
+        </div>
+      </div>
+    </div>
+    <div id="page-overview" class="page"><div class="ph"><div class="ptag">Page 1</div><h2>Executive Dataset Overview</h2><p>What am I looking at?</p></div><div id="c-overview"><div class="empty-st"><div class="ei">📊</div><p>Upload a dataset to begin</p></div></div></div>
+    <div id="page-anatomy" class="page"><div class="ph"><div class="ptag">Page 2</div><h2>Dataset Anatomy</h2><p>Automatic column classification</p></div><div id="c-anatomy"><div class="empty-st"><div class="ei">🔬</div><p>Upload a dataset to begin</p></div></div></div>
+    <div id="page-quality" class="page"><div class="ph"><div class="ptag">Page 3</div><h2>Data Quality Assessment</h2><p>Observe and assess only — the Harness never modifies data</p></div><div id="c-quality"><div class="empty-st"><div class="ei">✅</div><p>Upload a dataset to begin</p></div></div></div>
+    <div id="page-coverage" class="page"><div class="ph"><div class="ptag">Page 4</div><h2>Data Coverage Intelligence</h2><p>Where is the dataset strong?</p></div><div id="c-coverage"><div class="empty-st"><div class="ei">🗺️</div><p>Upload a dataset to begin</p></div></div></div>
+    <div id="page-claims" class="page"><div class="ph"><div class="ptag">Page 5</div><h2>Claims Intelligence</h2><p>Automatic claims discovery</p></div><div id="c-claims"><div class="empty-st"><div class="ei">💊</div><p>Upload a dataset to begin</p></div></div></div>
+    <div id="page-targets" class="page"><div class="ph"><div class="ptag">Page 6</div><h2>Target Discovery</h2><p>The Harness suggests — the analyst decides</p></div><div id="c-targets"><div class="empty-st"><div class="ei">🎯</div><p>Upload a dataset to begin</p></div></div></div>
+    <div id="page-features" class="page"><div class="ph"><div class="ptag">Page 7</div><h2>Feature Discovery</h2><p>High-value, suspicious, leakage, low-value features</p></div><div id="c-features"><div class="empty-st"><div class="ei">⭐</div><p>Upload a dataset to begin</p></div></div></div>
+    <div id="page-advisor" class="page"><div class="ph"><div class="ptag">Page 8</div><h2>EDA Advisor</h2><p>Dataset-driven EDA roadmap — not a hardcoded template</p></div><div id="c-advisor"><div class="empty-st"><div class="ei">🧠</div><p>Upload a dataset to begin</p></div></div></div>
+    <div id="page-findings" class="page"><div class="ph"><div class="ptag">Page 9</div><h2>Key Findings</h2><p>Opportunities, risks, quality issues, analytical risks, business observations</p></div><div id="c-findings"><div class="empty-st"><div class="ei">🔍</div><p>Upload a dataset to begin</p></div></div></div>
+    <div id="page-evidence" class="page"><div class="ph"><div class="ptag">Page 10</div><h2>Evidence Pack</h2><p>Full audit trail — export to JSON</p></div><div id="c-evidence"><div class="empty-st"><div class="ei">📋</div><p>Upload a dataset to begin</p></div></div></div>
+  </main>
+</div>
+<script>
+var DATA=null,COLS=[],RES=null,CH={};
+function showPage(n){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));document.getElementById('page-'+n).classList.add('active');document.querySelectorAll('.nav-item').forEach(x=>{if((x.getAttribute('onclick')||'').includes("'"+n+"'"))x.classList.add('active');});}
+function setupDrop(el){el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('drag-over');});el.addEventListener('dragleave',()=>el.classList.remove('drag-over'));el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('drag-over');doFile(e.dataTransfer.files[0]);});}
+setupDrop(document.getElementById('dzs'));
+setupDrop(document.getElementById('dzl'));
+document.getElementById('file-input').addEventListener('change',e=>{if(e.target.files[0])doFile(e.target.files[0]);});
+function setLS(n,a,d){var el=document.getElementById('ls'+n);if(!el)return;el.className='ls'+(d?' done':a?' active':'');}
+function doFile(f){
+  if(!f)return;
+  // If libraries haven't loaded yet (CDN still downloading), queue the file
+  if(!window._libsReady){
+    window._pendingFile = f;
+    document.getElementById('loading-overlay').classList.add('show');
+    document.getElementById('lmsg').textContent='Loading libraries...';
+    return;
+  }
+  document.getElementById('lmsg').textContent='Analysing...';
+  document.getElementById('loading-overlay').classList.add('show');
+  document.getElementById('progress-wrap').style.display='block';
+  document.getElementById('pfill').style.width='5%';
+  setLS(1,true,false);
+  var r=new FileReader();
+  r.onload=function(e){
+    try{
+      document.getElementById('pfill').style.width='35%';
+      setLS(1,false,true);setLS(2,true,false);
+      var ab=e.target.result;
+      var wb=XLSX.read(ab,{type:'array',cellDates:true,raw:false});
+      var ws=wb.Sheets[wb.SheetNames[0]];
+      DATA=XLSX.utils.sheet_to_json(ws,{defval:null,raw:false});
+      COLS=DATA.length>0?Object.keys(DATA[0]):[];
+      document.getElementById('pfill').style.width='55%';
+      document.getElementById('lmsg').textContent='Running analysis...';
+      setTimeout(function(){
+        try{
+          RES=analyse(DATA,COLS,f);
+          document.getElementById('pfill').style.width='100%';
+          setTimeout(function(){
+            document.getElementById('loading-overlay').classList.remove('show');
+            document.getElementById('progress-wrap').style.display='none';
+            renderAll(RES);
+            showPage('overview');
+            document.getElementById('sdot').className='status-dot ready';
+            var fn=f.name.length>24?f.name.substring(0,22)+'…':f.name;
+            document.getElementById('stext').textContent=fn;
+          },400);
+        }catch(err){document.getElementById('loading-overlay').classList.remove('show');alert('Analysis error: '+err.message);console.error(err);}
+      },50);
+    }catch(err){document.getElementById('loading-overlay').classList.remove('show');alert('Parse error: '+err.message);console.error(err);}
+  };
+  r.onerror=function(){document.getElementById('loading-overlay').classList.remove('show');alert('Could not read file.');};
+  r.readAsArrayBuffer(f);
+}
+
+// ── ANALYSIS ENGINE ──
+function analyse(rows,cols,file){
+  var n=rows.length;
+  setLS(2,false,true);setLS(3,true,false);
+  var anatomy=classifyCols(rows,cols);
+  setLS(3,false,true);setLS(4,true,false);
+  var quality=qualityChecks(rows,cols,anatomy);
+  var coverage=buildCoverage(rows,anatomy);
+  setLS(4,false,true);setLS(5,true,false);
+  var claims=detectClaims(rows,cols);
+  setLS(5,false,true);setLS(6,true,false);
+  var targets=discoverTargets(rows,cols,anatomy,claims);
+  setLS(6,false,true);setLS(7,true,false);
+  var features=scoreFeatures(anatomy);
+  var rd=readiness(anatomy,quality,targets);
+  setLS(7,false,true);
+  var rm=roadmap(anatomy,claims,targets,quality);
+  var findings=genFindings(n,anatomy,quality,claims,targets,features);
+  var meta=getMeta(rows,cols,anatomy,claims,file);
+  return{meta:meta,interpretation:interpret(n,cols,anatomy,claims,targets),anatomy:anatomy,quality:quality,coverage:coverage,claims:claims,targets:targets,features:features,readiness_score:rd.score,readiness_breakdown:rd.bd,readiness_summary:rd.summary,roadmap:rm.steps,roadmap_summary:rm.summary,findings:findings};
+}
+
+var CAT_PAT=[
+  ['Identifiers',/_id$|^id$|_no$|_num$|_ref$|_code$|identifier|serial|uuid/i],
+  ['Dates',/date|_dt$|^dt_|year|month|quarter|inception|expiry|renewal|start|end/i],
+  ['Claims',/claim|clm|loss|paid|payment|reimburs|benefit|settlement|indemnity/i],
+  ['Exposure',/exposure|expo|earned|duration|days_at_risk|risk_days/i],
+  ['Premium',/premium|prm|gwp|nwp|written|price|rate|tariff/i],
+  ['Customer',/customer|client|member|insured|policyholder|holder/i],
+  ['Policy',/policy|cover|plan_type|scheme/i],
+  ['Product',/product|lob|class|subclass|tier/i],
+  ['Pet',/pet|breed|species|animal/i],
+  ['Geography',/province|state|region|country|postcode|zip|city|area|territory|district/i],
+  ['Behavioural',/tenure|vintage|age|gender|sex|occupation|income|channel|source/i],
+  ['Potential Leakage',/future|post_claim|after_claim|outcome/i],
+  ['Potential Targets',/^target$|^label$|^y_|propensity/i]
+];
+
+function classifyCols(rows,cols){
+  var n=rows.length;
+  return cols.map(function(col){
+    var vals=rows.map(function(r){return r[col];});
+    var nn=vals.filter(function(v){return v!==null&&v!==''&&v!==undefined;});
+    var cov=n>0?Math.round(nn.length/n*1000)/10:0;
+    var uniq=new Set(nn.map(String)).size;
+    var samp=nn.slice(0,5).map(String);
+    var dtype='object';
+    var numC=nn.filter(function(v){return !isNaN(parseFloat(v))&&isFinite(v);}).length;
+    if(numC>nn.length*0.85){dtype=nn.length>0&&Number.isInteger(parseFloat(nn[0]))?'integer':'float';}
+    else if(nn.length>0&&/^\d{4}-\d{2}-\d{2}/.test(String(nn[0]))){dtype='datetime';}
+    var cat='Other';
+    for(var i=0;i<CAT_PAT.length;i++){if(CAT_PAT[i][1].test(col)){cat=CAT_PAT[i][0];break;}}
+    return{name:col,category:cat,dtype:dtype,coverage_pct:cov,unique_values:uniq,sample_values:samp};
+  });
+}
+
+function qualityChecks(rows,cols,anatomy){
+  var n=rows.length, checks=[];
+  // 1 missing
+  var mc=0; cols.forEach(function(c){rows.forEach(function(r){if(r[c]===null||r[c]===''||r[c]===undefined)mc++;});});
+  var mp=n*cols.length>0?(mc/(n*cols.length)*100).toFixed(1):0;
+  var nm=anatomy.filter(function(c){return c.coverage_pct<100;}).length;
+  checks.push({check:'Missing Values',status:mp<5?'pass':mp<20?'warn':'fail',observation:mp+'% of cells missing across '+nm+' columns.',why_matters:'High missingness reduces model reliability.',impact:'Biased analysis, reduced sample sizes.',action:'Investigate the '+nm+' columns with missing values.'});
+  // 2 duplicates
+  var sm=rows.slice(0,Math.min(n,3000)),seen=new Set(),dc=0;
+  sm.forEach(function(r){var k=JSON.stringify(r);if(seen.has(k))dc++;else seen.add(k);});
+  var dp=(dc/sm.length*100).toFixed(1);
+  checks.push({check:'Duplicate Rows',status:dc===0?'pass':dp<5?'warn':'fail',observation:dc+' duplicate rows in sample ('+dp+'%).',why_matters:'Duplicates inflate counts and cause data leakage.',impact:'Overstated metrics, inflated counts.',action:'Determine if duplicates are intentional or data errors.'});
+  // 3 zero variance
+  var zv=anatomy.filter(function(c){return c.unique_values<=1;}).map(function(c){return c.name;});
+  checks.push({check:'Zero Variance Variables',status:zv.length===0?'pass':'warn',observation:zv.length+' zero-value columns: '+(zv.slice(0,5).join(', ')||'none')+'.',why_matters:'Constant columns carry no predictive information.',impact:'Model clutter.',action:zv.length?'Exclude: '+zv.slice(0,8).join(', '):'No action required.'});
+  // 4 sparse
+  var sp=anatomy.filter(function(c){return c.coverage_pct<30;});
+  checks.push({check:'Sparse Variables (<30%)',status:sp.length===0?'pass':sp.length<5?'warn':'fail',observation:sp.length+' sparse columns.',why_matters:'Sparse columns lack sufficient data.',impact:'Unreliable statistics.',action:sp.length?'Review: '+sp.slice(0,6).map(function(c){return c.name+'('+c.coverage_pct+'%)'}).join(', '):'No action required.'});
+  // 5 negatives
+  var pf=anatomy.filter(function(c){return['Claims','Exposure','Premium'].includes(c.category)&&c.dtype!=='object';});
+  var ni=[];
+  pf.forEach(function(ci){var neg=rows.filter(function(r){return parseFloat(r[ci.name])<0;}).length;if(neg>0)ni.push(ci.name+': '+neg+' negatives');});
+  checks.push({check:'Negative Values in Financial Fields',status:ni.length===0?'pass':'warn',observation:ni.length?ni.slice(0,4).join('; '):'No unexpected negatives.',why_matters:'Negative financial values indicate adjustments or errors.',impact:'Incorrect loss ratios.',action:ni.length?'Verify: '+ni.slice(0,3).join('; '):'No action required.'});
+  // 6 high cardinality
+  var hc=anatomy.filter(function(c){return c.dtype==='object'&&c.category!=='Identifiers'&&c.unique_values>100;});
+  checks.push({check:'High Cardinality Categoricals',status:hc.length===0?'pass':'warn',observation:hc.length+' columns with >100 unique values.',why_matters:'Hard to encode, potential quasi-identifiers.',impact:'Model memory issues.',action:hc.length?'Consider grouping: '+hc.slice(0,5).map(function(c){return c.name;}).join(', '):'No action required.'});
+  // 7 overall coverage
+  var ac=anatomy.reduce(function(a,c){return a+c.coverage_pct;},0)/(anatomy.length||1);
+  var b50=anatomy.filter(function(c){return c.coverage_pct<50;}).length;
+  checks.push({check:'Overall Population Coverage',status:ac>=85?'pass':ac>=60?'warn':'fail',observation:'Avg coverage: '+ac.toFixed(1)+'%. '+b50+' columns <50%.',why_matters:'Low coverage reduces analytical credibility.',impact:'Insufficient sample sizes.',action:'Focus EDA on well-populated segments.'});
+  return{checks:checks};
+}
+
+function buildCoverage(rows,anatomy){
+  var ac=anatomy.reduce(function(a,c){return a+c.coverage_pct;},0)/(anatomy.length||1);
+  var fp=anatomy.filter(function(c){return c.coverage_pct>=99;}).length;
+  var sp=anatomy.filter(function(c){return c.coverage_pct<30;}).length;
+  var hm=[];
+  ['Geography','Product','Pet','Customer','Policy'].forEach(function(cat){
+    anatomy.filter(function(c){return c.category===cat&&c.dtype==='object';}).slice(0,1).forEach(function(ci){
+      var vc={};
+      rows.forEach(function(r){var v=r[ci.name];if(v!==null&&v!==''&&v!==undefined)vc[v]=(vc[v]||0)+1;});
+      var tot=Object.values(vc).reduce(function(a,b){return a+b;},0);
+      var cells=Object.entries(vc).sort(function(a,b){return b[1]-a[1];}).slice(0,18).map(function(e){return{label:String(e[0]).substring(0,16),pct:Math.round(e[1]/tot*100)};});
+      if(cells.length>0)hm.push({title:ci.name+' Distribution',cells:cells});
+    });
+  });
+  return{avg_coverage:Math.round(ac*10)/10,fully_populated:fp,sparse_columns:sp,heatmaps:hm};
+}
+
+function detectClaims(rows,cols){
+  var amtP=/claim.?(amount|paid|value|cost|payment|benefit|settlement|incurred)|paid.?amount|loss.?amount|total.?paid/i;
+  var cntP=/claim.?(count|cnt|num|freq)|n_claim|num_claim/i;
+  var flgP=/has_claim|claim_flag|is_claim|claimed|clm_flag/i;
+  var aC=null,cC=null,fC=null;
+  for(var i=0;i<cols.length;i++){
+    var c=cols[i];
+    if(!aC&&amtP.test(c)){var nv=rows.map(function(r){return parseFloat(r[c]);}).filter(function(v){return!isNaN(v);});if(nv.length>rows.length*0.3)aC=c;}
+    if(!cC&&cntP.test(c))cC=c;
+    if(!fC&&flgP.test(c))fC=c;
+  }
+  var det=[aC,cC,fC].filter(Boolean);
+  var uniq=[...new Set(det)];
+  if(!uniq.length)return null;
+  var n=rows.length,hc;
+  if(aC)hc=rows.map(function(r){return parseFloat(r[aC])>0;});
+  else if(fC)hc=rows.map(function(r){return['1','true','yes','y'].includes(String(r[fC]).toLowerCase());});
+  else hc=rows.map(function(r){return parseFloat(r[cC])>0;});
+  var tc=hc.filter(Boolean).length;
+  var cp=Math.round(tc/n*10000)/100;
+  var avg=null,med=null,mx=null,tp=null,sk=null,pcts=null,hist=null;
+  if(aC){
+    var vs=rows.filter(function(_,i){return hc[i];}).map(function(r){return parseFloat(r[aC]);}).filter(function(v){return!isNaN(v)&&v>0;}).sort(function(a,b){return a-b;});
+    if(vs.length>0){
+      var s=vs.reduce(function(a,b){return a+b;},0);
+      tp=s;avg=s/vs.length;med=vs[Math.floor(vs.length/2)];mx=vs[vs.length-1];
+      if(vs.length>3){var mn=vs.reduce(function(a,b){return a+b;},0)/vs.length;var m2=vs.reduce(function(a,v){return a+Math.pow(v-mn,2);},0)/vs.length;var m3=vs.reduce(function(a,v){return a+Math.pow(v-mn,3);},0)/vs.length;sk=m2===0?0:m3/Math.pow(m2,1.5);}
+      function qp(a,p){return a[Math.min(Math.floor(a.length*p),a.length-1)];}
+      pcts={'P25':qp(vs,.25),'P50 (Median)':qp(vs,.5),'P75':qp(vs,.75),'P90':qp(vs,.9),'P95':qp(vs,.95),'P99':qp(vs,.99)};
+      if(vs.length>10){var mn2=vs[0],mx2=vs[vs.length-1],bins=20,bw=(mx2-mn2)/bins;if(bw>0){var cts=new Array(bins).fill(0);vs.forEach(function(v){var b=Math.min(bins-1,Math.floor((v-mn2)/bw));cts[b]++;});hist={labels:cts.map(function(_,i){var v=mn2+i*bw;return v>=1000000?'$'+(v/1000000).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'K':'$'+Math.round(v);}),values:cts};}}
+    }
+  }
+  return{detected_fields:uniq,total_claims:tc,claiming_pct:cp,avg_claim:avg,median_claim:med,max_claim:mx,total_paid:tp,skewness:sk,percentiles:pcts,histogram_data:hist};
+}
+
+function discoverTargets(rows,cols,anatomy,claims){
+  var tgts=[];
+  var flgP=/claim.?(flag|ind|indicator|binary)|has_claim|is_claim|clm_flag/i;
+  var cntP=/claim.?(count|cnt|num|freq)|n_claim|num_claim/i;
+  var amtP=/claim.?(amount|paid|value|cost|incurred)|paid.?amount|loss.?amount/i;
+  var expP=/exposure|expo|earned|duration|days_at_risk/i;
+  var lapP=/lapse|churn|cancel|renew|retain|termination/i;
+  var fC=null,cC=null,aC=null,eC=null;
+  cols.forEach(function(c){if(!fC&&flgP.test(c))fC=c;if(!cC&&cntP.test(c))cC=c;if(!aC&&amtP.test(c))aC=c;if(!eC&&expP.test(c))eC=c;});
+  if(fC)tgts.push({name:'Claim Frequency (Binary)',type:'Frequency Target',formula:fC+' = 1',confidence:92,reasoning:"'"+fC+"' is a binary claim indicator — suitable for frequency/classification modelling.",source_columns:[fC]});
+  else if(cC)tgts.push({name:'Claim Count (Frequency)',type:'Frequency Target',formula:'SUM('+cC+') / Exposure',confidence:85,reasoning:"'"+cC+"' contains claim counts. Dividing by exposure gives claim frequency.",source_columns:[cC]});
+  if(aC){var fm=cC?aC+' / '+cC:aC+' (where > 0)';tgts.push({name:'Claim Severity',type:'Severity Target',formula:fm,confidence:cC?95:80,reasoning:"'"+aC+"' represents claim amounts."+(cC?" Dividing by count gives average severity.":" Filtering to non-zero gives severity distribution."),source_columns:[aC,cC].filter(Boolean)});}
+  if(aC&&eC)tgts.push({name:'Expected Loss (Pure Premium)',type:'Expected Loss Target',formula:aC+' / '+eC,confidence:78,reasoning:'Claim amount normalised by exposure yields pure premium — the actuarial pricing basis.',source_columns:[aC,eC]});
+  for(var i=0;i<cols.length;i++){if(lapP.test(cols[i])){tgts.push({name:'Retention / Lapse',type:'Retention Target',formula:cols[i]+' (binary)',confidence:70,reasoning:"'"+cols[i]+"' appears to contain lapse or cancellation information.",source_columns:[cols[i]]});break;}}
+  var exP=/^target$|^label$|^y_|propensity/i;
+  cols.forEach(function(c){if(exP.test(c))tgts.push({name:c,type:'Explicit Label',formula:c,confidence:75,reasoning:"'"+c+"' matches typical target naming conventions.",source_columns:[c]});});
+  var seen=new Set();return tgts.filter(function(t){var k=t.name.toLowerCase();if(seen.has(k))return false;seen.add(k);return true;}).sort(function(a,b){return b.confidence-a.confidence;});
+}
+
+function scoreFeatures(anatomy){
+  var hiP=/age|pet.?age|gender|sex|breed|province|state|region|plan|product|vintage|tenure|channel|income|occupation|sum.?insured/i;
+  var lkP=/future|post.?claim|after.?claim|next.?period|outcome|total.?paid|benefit.?paid|loss.?ratio|claim.?ratio/i;
+  var suP=/loss.?ratio|combined.?ratio|profit|margin|expense.?ratio/i;
+  return anatomy.map(function(ci){
+    var c=ci.name,cat=ci.category,cov=ci.coverage_pct,uniq=ci.unique_values;
+    if(cat==='Identifiers')return mk(c,'Low Value','Primary identifier — not a predictive feature.',95,'Exclude from model features.');
+    if(cat==='Potential Leakage'||lkP.test(c))return mk(c,'Potential Leakage','May contain future or post-event information.',85,'Exclude until timing validated.');
+    if(cat==='Potential Targets')return null;
+    if(cov<20)return mk(c,'Low Value','Only '+cov+'% populated.',90,'Exclude. Document sparseness.');
+    if(uniq<=1)return mk(c,'Low Value','Only '+uniq+' unique value(s).',98,'Exclude — no information.');
+    if(suP.test(c))return mk(c,'Suspicious','Derived ratio — potential circularity.',70,'Validate construction before use.');
+    if(hiP.test(c)||['Geography','Pet','Behavioural','Product','Policy'].includes(cat))return mk(c,'High Value','Strong predictive signal. Category: '+cat+'. Coverage: '+cov+'%.',Math.min(95,60+Math.round(cov/3)),'Include in EDA and initial feature set.');
+    return mk(c,'Modelling Feature','No specific concerns. Category: '+cat+'. Coverage: '+cov+'%.',55,'Include in EDA. Assess via univariate analysis.');
+  }).filter(Boolean);
+}
+function mk(n,cls,r,c,u){return{name:n,classification:cls,reason:r,confidence:c,suggested_usage:u};}
+
+function readiness(anatomy,quality,targets){
+  var ac=anatomy.reduce(function(a,c){return a+c.coverage_pct;},0)/(anatomy.length||1);
+  var d1=Math.min(25,Math.round(ac/4));
+  var checks=quality.checks||[];
+  var pr=checks.length?checks.filter(function(c){return c.status==='pass';}).length/checks.length:0.5;
+  var d2=Math.min(25,Math.round(pr*25));
+  var d3=!targets||!targets.length?5:targets.length>=2?25:15;
+  var nc=new Set(anatomy.map(function(c){return c.category;})).size;
+  var d4=Math.min(25,nc*3);
+  var score=d1+d2+d3+d4;
+  var summary=score>=80?'Dataset is well-structured and ready for EDA.':score>=60?'Usable but has quality gaps. Address warnings before modelling.':score>=40?'Significant quality issues. Analyst review required.':'Requires substantial preparation.';
+  return{score:score,bd:{Completeness:d1,Quality:d2,'Target Availability':d3,'Structural Richness':d4},summary:summary};
+}
+
+function roadmap(anatomy,claims,targets,quality){
+  var hasCl=!!claims,hasEx=anatomy.some(function(c){return c.category==='Exposure';}),hasPr=anatomy.some(function(c){return c.category==='Premium';}),hasGe=anatomy.some(function(c){return c.category==='Geography';}),hasPe=anatomy.some(function(c){return c.category==='Pet';}),hasDt=anatomy.some(function(c){return c.category==='Dates';});
+  var fc=(quality.checks||[]).filter(function(c){return c.status==='fail';}).length,wc=(quality.checks||[]).filter(function(c){return c.status==='warn';}).length;
+  var steps=[];
+  steps.push({title:'Portfolio Overview',why:'Establish fundamental shape: size, structure, key segments.',priority:'High',effort:'Low',business_value:'High',expected_insight:'Portfolio composition, key segments'});
+  if(fc>0||wc>3)steps.push({title:'Data Quality Remediation',why:fc+' failed and '+wc+' warning checks. Address before proceeding.',priority:'High',effort:'Medium',business_value:'High',expected_insight:'Corrected dataset, documented limitations'});
+  if(hasEx)steps.push({title:'Exposure Analysis',why:'Exposure is the denominator for all rate-based metrics.',priority:'High',effort:'Medium',business_value:'High',expected_insight:'Exposure distribution, seasonality'});
+  if(hasCl){steps.push({title:'Claims Validation',why:'Validate structural integrity: zeros, negatives, outliers.',priority:'High',effort:'Low',business_value:'High',expected_insight:'Claims data reliability'});steps.push({title:'Claims Overview',why:'Total claims, claiming rate, total paid, average claim.',priority:'High',effort:'Low',business_value:'High',expected_insight:'Claiming rate, total losses'});steps.push({title:'Claim Severity Analysis',why:'Understand distribution of individual claim amounts.',priority:'High',effort:'Medium',business_value:'High',expected_insight:'Severity shape, large loss threshold'});steps.push({title:'Claim Frequency Analysis',why:'How often do claims occur across segments?',priority:'High',effort:'Medium',business_value:'High',expected_insight:'Frequency by segment, high-risk cohorts'});}
+  if(hasGe)steps.push({title:'Geographic Analysis',why:'Geography is a primary risk stratifier.',priority:'Medium',effort:'Medium',business_value:'High',expected_insight:'Regional risk variation'});
+  if(hasPe)steps.push({title:'Breed & Species Risk Analysis',why:'In pet insurance, breed is a primary risk factor.',priority:'Medium',effort:'Medium',business_value:'High',expected_insight:'High-risk breeds, coverage gaps'});
+  if(hasPr)steps.push({title:'Premium & Pricing Analysis',why:'Compare earned premium to claims. Identify underpriced segments.',priority:'Medium',effort:'Medium',business_value:'High',expected_insight:'Loss ratio by segment'});
+  if(hasDt)steps.push({title:'Experience Trends Over Time',why:'Identify trends in frequency, severity, loss ratio.',priority:'Medium',effort:'Medium',business_value:'Medium',expected_insight:'Claim trends, seasonal patterns'});
+  if(hasCl&&hasEx)steps.push({title:'Expected Loss (Pure Premium)',why:'Combine frequency and severity — the actuarial pricing basis.',priority:'High',effort:'Medium',business_value:'High',expected_insight:'Pure premium by segment'});
+  steps.push({title:'Risk Segmentation & Clustering',why:'Identify natural risk segments before formal modelling.',priority:'Medium',effort:'High',business_value:'Medium',expected_insight:'Natural groupings, segment homogeneity'});
+  if(targets&&targets.length)steps.push({title:'Target Variable Analysis ('+targets.length+' candidates)',why:targets.length+' candidate target(s). Assess distribution, balance, outliers.',priority:'High',effort:'Medium',business_value:'High',expected_insight:'Target distribution, class imbalance'});
+  steps.push({title:'Modelling Readiness Assessment',why:'Confirm feature completeness, target clarity, no leakage.',priority:'Medium',effort:'Low',business_value:'High',expected_insight:'Go/no-go for modelling'});
+  var nh=steps.filter(function(s){return s.priority==='High';}).length;
+  return{steps:steps,summary:'A '+steps.length+'-step EDA roadmap from your dataset. '+nh+' high-priority steps before modelling.'+(hasCl&&hasEx?' Actuarial analysis path recommended.':'')};
+}
+
+function genFindings(n,anatomy,quality,claims,targets,features){
+  var f={opportunities:[],risks:[],quality_issues:[],analytical_risks:[],business_observations:[]};
+  if(targets&&targets.length>=2)f.opportunities.push({title:targets.length+' Modelling Targets Available',detail:'Targets: '+targets.slice(0,3).map(function(t){return t.name;}).join(', ')+'.',action:'Confirm target definitions with the business.',impact:'High',confidence:90,human_review:true});
+  var hv=features.filter(function(x){return x.classification==='High Value';});
+  if(hv.length>=5)f.opportunities.push({title:hv.length+' High-Value Features Identified',detail:'Rich feature set: '+hv.slice(0,5).map(function(x){return x.name;}).join(', ')+'.',action:'Assess via univariate analysis.',impact:'High',confidence:80,human_review:false});
+  if(n>=100000)f.opportunities.push({title:'Large Dataset — Statistical Power Available',detail:n.toLocaleString()+' records provide strong statistical power.',action:'Use volume to validate results across subgroups.',impact:'Medium',confidence:95,human_review:false});
+  var lk=features.filter(function(x){return x.classification==='Potential Leakage';});
+  if(lk.length)f.risks.push({title:lk.length+' Potential Leakage Features',detail:'Suspect columns: '+lk.slice(0,5).map(function(x){return x.name;}).join(', ')+'.',action:'Exclude until timing validated.',impact:'High',confidence:75,human_review:true});
+  var sp=anatomy.filter(function(c){return c.coverage_pct<30;});
+  if(sp.length)f.risks.push({title:sp.length+' Sparse Columns — Credibility Risk',detail:'<30% populated: '+sp.slice(0,5).map(function(c){return c.name;}).join(', ')+'.',action:'Avoid segment conclusions where N is small.',impact:'Medium',confidence:90,human_review:false});
+  if(claims&&claims.skewness&&Math.abs(claims.skewness)>2)f.risks.push({title:'Highly Skewed Claim Distribution',detail:'Skewness = '+claims.skewness.toFixed(2)+'. A few large claims dominate.',action:'Apply log-transformation or Tweedie distribution.',impact:'High',confidence:85,human_review:true});
+  (quality.checks||[]).filter(function(c){return c.status==='fail';}).slice(0,5).forEach(function(c){f.quality_issues.push({title:'FAIL: '+c.check,detail:c.observation,action:c.action,impact:'High',confidence:95,human_review:true});});
+  (quality.checks||[]).filter(function(c){return c.status==='warn';}).slice(0,4).forEach(function(c){f.quality_issues.push({title:'WARNING: '+c.check,detail:c.observation,action:c.action,impact:'Medium',confidence:85,human_review:false});});
+  var su=features.filter(function(x){return x.classification==='Suspicious';});
+  if(su.length)f.analytical_risks.push({title:su.length+' Suspicious Features',detail:'Potential circularity: '+su.slice(0,5).map(function(x){return x.name;}).join(', ')+'.',action:'Validate construction before use.',impact:'High',confidence:70,human_review:true});
+  if(!targets||!targets.length)f.analytical_risks.push({title:'No Clear Modelling Target Detected',detail:'Cannot automatically identify candidate targets.',action:'Define targets manually in consultation with the business.',impact:'High',confidence:80,human_review:true});
+  if(claims)f.business_observations.push({title:'Claiming Rate: '+claims.claiming_pct+'%',detail:claims.total_claims.toLocaleString()+' records carry a claim out of '+n.toLocaleString()+'.'+(claims.claiming_pct<20?' Low rate — address class imbalance in frequency models.':''),action:'Use appropriate modelling techniques.',impact:'Medium',confidence:95,human_review:false});
+  var gc=anatomy.filter(function(c){return c.category==='Geography';});
+  if(gc.length)f.business_observations.push({title:'Geographic Segmentation Available',detail:'Geography fields: '+gc.slice(0,3).map(function(c){return c.name;}).join(', ')+'.',action:'Include in univariate analysis early in EDA.',impact:'Medium',confidence:85,human_review:false});
+  return f;
+}
+
+function getMeta(rows,cols,anatomy,claims,file){
+  var n=rows.length;
+  var sz=file.size>=1073741824?(file.size/1073741824).toFixed(1)+' GB':file.size>=1048576?(file.size/1048576).toFixed(1)+' MB':(file.size/1024).toFixed(1)+' KB';
+  var ext=file.name.split('.').pop().toUpperCase();
+  var dr=null;
+  var dc=anatomy.filter(function(c){return c.category==='Dates';}).slice(0,3);
+  if(dc.length){var ad=[];dc.forEach(function(ci){rows.forEach(function(r){var v=r[ci.name];if(v){var d=new Date(v);if(!isNaN(d))ad.push(d);}});});if(ad.length){ad.sort(function(a,b){return a-b;});dr=ad[0].toISOString().slice(0,10)+' → '+ad[ad.length-1].toISOString().slice(0,10);}}
+  var pc=cols.find(function(c){return/policy.?id|policy_no|policyid/i.test(c);});
+  var cc=cols.find(function(c){return/customer.?id|client.?id|member.?id/i.test(c);});
+  var up=pc?new Set(rows.map(function(r){return r[pc];})).size:null;
+  var uc=cc?new Set(rows.map(function(r){return r[cc];})).size:null;
+  return{rows:n,columns:cols.length,file_size:sz,file_type:ext,date_range:dr,unique_policies:up,unique_customers:uc,claiming_entities:claims?claims.total_claims:null,claim_rate:claims?claims.claiming_pct:null};
+}
+
+function interpret(n,cols,anatomy,claims,targets){
+  var cats=[...new Set(anatomy.map(function(c){return c.category;}))];
+  var p=['This dataset contains '+n.toLocaleString()+' records across '+cols.length+' columns.','Column analysis identified '+cats.length+' distinct field categories: '+cats.join(', ')+'.'];
+  if(claims)p.push('Claims fields detected — '+claims.claiming_pct+'% of records carry a claim.');
+  if(targets&&targets.length)p.push(targets.length+' candidate target(s): '+targets.slice(0,3).map(function(t){return t.name;}).join(', ')+'.');
+  p.push('Review Dataset Anatomy, Quality Assessment, and EDA Advisor before beginning analysis.');
+  return p.join(' ');
+}
+
+// ── RENDERERS ──
+var PAL=['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#39d353','#79c0ff','#ffa657','#ff7b72','#56d364','#e3b341','#a5d6ff'];
+function kpi(lbl,val,ico,cls,sub){return '<div class="kcard '+cls+'"><span class="kico">'+ico+'</span><div class="klbl">'+lbl+'</div><div class="kval">'+val+'</div><div class="ksub">'+(sub||'')+'</div></div>';}
+function fmt(n){return n==null?'—':Number(n).toLocaleString();}
+function fm(v){return v>=1000000?'$'+(v/1000000).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'K':'$'+Math.round(v);}
+function cc(cat){return{Identifiers:'#8b949e',Dates:'#58a6ff',Claims:'#f85149',Exposure:'#d29922',Premium:'#3fb950',Customer:'#bc8cff',Policy:'#79c0ff',Product:'#ffa657',Pet:'#56d364',Geography:'#39d353',Behavioural:'#ff7b72','Potential Targets':'#3fb950','Potential Leakage':'#f85149',Other:'#8b949e'}[cat]||'#8b949e';}
+function hc2(p){return p>=80?'#3fb950':p>=60?'#56d364':p>=40?'#d29922':p>=20?'#ffa657':'#f85149';}
+function fcb(c){return{'High Value':'high',Suspicious:'suspicious','Potential Leakage':'leakage','Low Value':'low','Modelling Feature':'model'}[c]||'model';}
+function rl(s){return s>=80?'High Readiness':s>=60?'Moderate Readiness':s>=40?'Low Readiness':'Not Ready';}
+function dc2(id){if(CH[id]){CH[id].destroy();delete CH[id];}}
+
+function renderAll(d){renderOv(d);renderAn(d);renderQu(d);renderCo(d);renderCl(d);renderTg(d);renderFe(d);renderAd(d);renderFn(d);renderEv(d);updateBadges(d);}
+
+function renderOv(d){
+  var m=d.meta,clc=(d.anatomy||[]).filter(function(c){return c.category==='Claims';}).length,ec=(d.anatomy||[]).filter(function(c){return c.category==='Exposure';}).length,pc=(d.anatomy||[]).filter(function(c){return c.category==='Premium';}).length,tc=(d.targets||[]).length;
+  document.getElementById('c-overview').innerHTML='<div class="cg c4" style="margin-bottom:16px">'+kpi('Rows',fmt(m.rows),'📋','ka',m.rows>1000000?'Large dataset':m.rows>100000?'Medium dataset':'Small dataset')+kpi('Columns',m.columns,'📐','ka','Features detected')+kpi('File Size',m.file_size,'💾','ka',m.file_type)+kpi('Date Range',m.date_range||'—','📅','ka','From metadata')+'</div><div class="cg c4" style="margin-bottom:16px">'+kpi('Unique Policies',m.unique_policies!==null?fmt(m.unique_policies):'—','📜','kg','Policy identifiers')+kpi('Unique Customers',m.unique_customers!==null?fmt(m.unique_customers):'—','👤','kg','Customer identifiers')+kpi('Claiming Entities',m.claiming_entities!==null?fmt(m.claiming_entities):'—','🏥','kp','With claims')+kpi('Claim Rate',m.claim_rate!==null?m.claim_rate+'%':'—','📈','kp','Of total records')+'</div><div class="cg c5" style="margin-bottom:16px">'+kpi('Claims Fields',clc,'💊','kw','Auto-detected')+kpi('Exposure Fields',ec,'⏱️','kw','Auto-detected')+kpi('Premium Fields',pc,'💰','kw','Auto-detected')+kpi('Target Candidates',tc,'🎯','kd','Suggested')+kpi('Readiness Score',(d.readiness_score||'—')+'/100','⬡','ka',rl(d.readiness_score))+'</div><div class="sec"><h3>📝 Dataset Interpretation</h3><p style="font-size:13px;line-height:1.8;color:var(--muted)">'+d.interpretation+'</p></div><div class="cg c2"><div class="sec"><h3>📊 Category Distribution</h3><div class="chart-wrap"><canvas id="ch-cd"></canvas></div></div><div class="sec"><h3>📉 Coverage Profile</h3><div class="chart-wrap"><canvas id="ch-cv"></canvas></div></div></div>';
+  if(d.anatomy&&d.anatomy.length){var catC={};d.anatomy.forEach(function(c){catC[c.category]=(catC[c.category]||0)+1;});dc2('ch-cd');CH['ch-cd']=new Chart(document.getElementById('ch-cd'),{type:'doughnut',data:{labels:Object.keys(catC),datasets:[{data:Object.values(catC),backgroundColor:PAL}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#8b949e',font:{size:10}}}}}});var top=d.anatomy.slice(0,15);dc2('ch-cv');CH['ch-cv']=new Chart(document.getElementById('ch-cv'),{type:'bar',data:{labels:top.map(function(c){return c.name.substring(0,12);}),datasets:[{label:'Coverage %',data:top.map(function(c){return c.coverage_pct;}),backgroundColor:top.map(function(c){return c.coverage_pct>90?'#3fb950':c.coverage_pct>70?'#d29922':'#f85149';}),borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b949e',font:{size:9}}},y:{max:100,ticks:{color:'#8b949e'},grid:{color:'rgba(48,54,61,.4)'}}}}});}
+}
+
+function renderAn(d){
+  if(!d.anatomy||!d.anatomy.length)return;
+  var byCat={};d.anatomy.forEach(function(c){if(!byCat[c.category])byCat[c.category]=[];byCat[c.category].push(c);});
+  var rows=d.anatomy.map(function(c){return'<tr><td style="font-family:monospace;font-size:11px">'+c.name+'</td><td><span class="cat-pill" style="background:'+cc(c.category)+'22;color:'+cc(c.category)+'">'+c.category+'</span></td><td style="color:var(--muted)">'+c.dtype+'</td><td><span style="color:'+(c.coverage_pct>90?'var(--accent2)':c.coverage_pct>70?'var(--warn)':'var(--danger)')+'">'+c.coverage_pct+'%</span></td><td style="color:var(--muted)">'+fmt(c.unique_values)+'</td><td style="color:var(--muted);font-size:10px">'+c.sample_values.slice(0,3).join(', ')+'</td></tr>';}).join('');
+  document.getElementById('c-anatomy').innerHTML='<div class="cg c3" style="margin-bottom:16px">'+Object.entries(byCat).map(function(e){var cat=e[0],cols=e[1];return'<div class="kcard" style="border-top:3px solid '+cc(cat)+'"><div class="klbl">'+cat+'</div><div class="kval">'+cols.length+'</div><div class="ksub">'+Math.round(cols.reduce(function(a,c){return a+c.coverage_pct;},0)/cols.length)+'% avg</div></div>';}).join('')+'</div><div class="sec"><h3>📊 All '+d.anatomy.length+' Columns</h3><div style="overflow-x:auto"><table class="dtable"><thead><tr><th>Column</th><th>Category</th><th>Type</th><th>Coverage</th><th>Unique</th><th>Sample</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+
+function renderQu(d){
+  if(!d.quality)return;
+  var cks=d.quality.checks||[],ps=cks.filter(function(c){return c.status==='pass';}).length,ws=cks.filter(function(c){return c.status==='warn';}).length,fs=cks.filter(function(c){return c.status==='fail';}).length;
+  document.getElementById('c-quality').innerHTML='<div class="cg c3" style="margin-bottom:16px">'+kpi('PASS',ps,'✅','kg','Passed')+kpi('WARNING',ws,'⚠️','kw','Need review')+kpi('FAIL',fs,'❌','kd','Failed')+'</div><div class="sec"><h3>🔍 Quality Check Results</h3>'+cks.map(function(c){return'<div class="tl-item"><div class="tl-dot '+c.status+'"></div><div class="tl-content"><div class="tl-title">'+c.check+' <span class="tlb '+c.status+'">'+c.status.toUpperCase()+'</span></div><div class="tl-obs"><strong>Observation:</strong> '+c.observation+'</div><div class="tl-obs"><strong>Why it matters:</strong> '+c.why_matters+'</div><div class="tl-obs"><strong>Impact:</strong> '+c.impact+'</div><div class="tl-act">→ '+c.action+'</div></div></div>';}).join('')+'</div>';
+}
+
+function renderCo(d){
+  if(!d.coverage)return;
+  var cov=d.coverage;
+  var hms=cov.heatmaps&&cov.heatmaps.length?cov.heatmaps.map(function(hm){return'<div class="sec"><h3>🗺️ '+hm.title+'</h3><div>'+hm.cells.map(function(cell){return'<div class="hmcell" title="'+cell.label+': '+cell.pct+'%" style="background:'+hc2(cell.pct)+';color:'+(cell.pct>50?'#0d1117':'#e6edf3')+'">'+cell.label+'<br>'+cell.pct+'%</div>';}).join('')+'</div></div>';}).join(''):'';
+  document.getElementById('c-coverage').innerHTML='<div class="cg c3" style="margin-bottom:16px">'+kpi('Avg Coverage',cov.avg_coverage+'%','📊','ka','Mean %')+kpi('Fully Populated',cov.fully_populated,'✅','kg','≥99%')+kpi('Sparse Columns',cov.sparse_columns,'⚠️','kw','<30%')+'</div>'+hms+'<div class="sec"><h3>📉 Missingness Profile</h3><div class="chart-wrap"><canvas id="ch-ms"></canvas></div></div>';
+  if(d.anatomy){var cols=d.anatomy.filter(function(c){return c.coverage_pct<100;}).sort(function(a,b){return a.coverage_pct-b.coverage_pct;}).slice(0,20);dc2('ch-ms');CH['ch-ms']=new Chart(document.getElementById('ch-ms'),{type:'bar',data:{labels:cols.map(function(c){return c.name.substring(0,14);}),datasets:[{label:'Missing %',data:cols.map(function(c){return+(100-c.coverage_pct).toFixed(1);}),backgroundColor:cols.map(function(c){return c.coverage_pct<50?'#f85149':c.coverage_pct<80?'#d29922':'#3fb950';}),borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{max:100,ticks:{color:'#8b949e'},grid:{color:'rgba(48,54,61,.4)'}},y:{ticks:{color:'#8b949e',font:{size:10}}}}}});}
+}
+
+function renderCl(d){
+  if(!d.claims){document.getElementById('c-claims').innerHTML='<div class="empty-st"><div class="ei">💊</div><p>No claims fields detected in this dataset</p></div>';return;}
+  var c=d.claims;
+  document.getElementById('c-claims').innerHTML='<div class="cg c4" style="margin-bottom:16px">'+kpi('Total Claims',fmt(c.total_claims),'💊','ka','Records')+kpi('Claiming %',c.claiming_pct+'%','📊','kp','Of portfolio')+kpi('Avg Claim',c.avg_claim!==null?fm(Math.round(c.avg_claim)):'—','💵','kg','Mean')+kpi('Max Claim',c.max_claim!==null?fm(Math.round(c.max_claim)):'—','📈','kw','Largest')+'</div><div class="cg c2"><div class="sec"><h3>📊 Claim Distribution</h3><div class="chart-wrap"><canvas id="ch-cl"></canvas></div></div><div class="sec"><h3>📋 Percentiles</h3>'+(c.percentiles?'<table class="dtable" style="margin-top:8px"><thead><tr><th>Percentile</th><th>Value</th></tr></thead><tbody>'+Object.entries(c.percentiles).map(function(e){return'<tr><td style="color:var(--muted)">'+e[0]+'</td><td style="color:var(--accent)">'+(e[1]!==null?fm(Math.round(e[1])):'—')+'</td></tr>';}).join('')+'</tbody></table>':'<p style="color:var(--muted);font-size:12px;margin-top:8px">Not available</p>')+(c.skewness!==null?'<div style="margin-top:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:12px"><strong>Skewness:</strong> <span style="color:'+(Math.abs(c.skewness)>1?'var(--warn)':'var(--accent2)')+'">'+c.skewness.toFixed(3)+'</span>'+(Math.abs(c.skewness)>1?' — Highly skewed':' — Moderate')+'</div>':'')+'</div></div><div class="sec"><h3>🔍 Detected Fields</h3><div style="display:flex;flex-wrap:wrap;gap:8px">'+c.detected_fields.map(function(f){return'<span style="background:rgba(88,166,255,.1);color:var(--accent);padding:4px 12px;border-radius:16px;font-size:12px;font-family:monospace">'+f+'</span>';}).join('')+'</div></div>';
+  if(c.histogram_data){dc2('ch-cl');CH['ch-cl']=new Chart(document.getElementById('ch-cl'),{type:'bar',data:{labels:c.histogram_data.labels,datasets:[{label:'Frequency',data:c.histogram_data.values,backgroundColor:'rgba(88,166,255,.6)',borderColor:'var(--accent)',borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b949e',font:{size:9}}},y:{ticks:{color:'#8b949e'},grid:{color:'rgba(48,54,61,.4)'}}}}});}
+}
+
+function renderTg(d){
+  if(!d.targets||!d.targets.length){document.getElementById('c-targets').innerHTML='<div class="empty-st"><div class="ei">🎯</div><p>No clear target candidates detected</p></div>';return;}
+  document.getElementById('c-targets').innerHTML='<div class="sec" style="margin-bottom:14px;background:rgba(88,166,255,.05);border-color:var(--accent)"><p style="font-size:12px;color:var(--muted)">⚡ The Harness suggests — the analyst decides. Candidates based on dataset structure and naming.</p></div>'+d.targets.map(function(t){return'<div class="tcard"><div class="thdr"><div class="tname">'+t.name+' <span style="color:var(--muted);font-size:12px;font-weight:400">'+t.type+'</span></div><span class="cbadge '+(t.confidence>=80?'ch':t.confidence>=50?'cm':'cl')+'">'+t.confidence+'% confidence</span></div>'+(t.formula?'<div class="tformula">'+t.formula+'</div>':'')+'<div class="treason">'+t.reasoning+'</div>'+(t.source_columns&&t.source_columns.length?'<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+t.source_columns.map(function(c){return'<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--muted);font-family:monospace">'+c+'</span>';}).join('')+'</div>':'')+'</div>';}).join('');
+}
+
+function renderFe(d){
+  if(!d.features||!d.features.length)return;
+  var groups={'High Value':[],'Modelling Feature':[],'Suspicious':[],'Potential Leakage':[],'Low Value':[]};
+  d.features.forEach(function(f){if(groups[f.classification])groups[f.classification].push(f);});
+  var tabs=Object.entries(groups).filter(function(e){return e[1].length>0;});
+  document.getElementById('c-features').innerHTML='<div class="tabs">'+tabs.map(function(e,i){return'<button class="tbtn'+(i===0?' active':'')+'" onclick="swTab(\'ft\',\''+e[0].replace(/\s+/g,'')+'\',this)">'+e[0]+' ('+groups[e[0]].length+')</button>';}).join('')+'</div>'+tabs.map(function(e,i){var cat=e[0];return'<div id="ft-'+cat.replace(/\s+/g,'')+'" class="tcontent'+(i===0?' active':'')+'"><div class="feat-grid">'+groups[cat].map(function(f){return'<div class="fcard"><div class="fhdr"><div class="fname">'+f.name+'</div><span class="fcb '+fcb(f.classification)+'">'+f.classification+'</span></div><div class="freason">'+f.reason+'</div><div style="font-size:10px;color:var(--muted);margin-bottom:5px">'+f.suggested_usage+'</div><div class="cbar"><div class="cfill" style="width:'+f.confidence+'%;background:'+(f.confidence>80?'var(--accent2)':f.confidence>50?'var(--warn)':'var(--danger)')+'"></div></div><div style="font-size:10px;color:var(--muted);margin-top:2px">'+f.confidence+'% confidence</div></div>';}).join('')+'</div></div>';}).join('');
+}
+function swTab(px,cat,btn){var p=btn.closest('.page');p.querySelectorAll('.tbtn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tcontent').forEach(function(t){t.classList.remove('active');});btn.classList.add('active');document.getElementById(px+'-'+cat).classList.add('active');}
+
+function renderAd(d){
+  if(!d.roadmap||!d.roadmap.length)return;
+  var rs=d.readiness_score||0;
+  document.getElementById('c-advisor').innerHTML='<div class="cg c2" style="margin-bottom:16px"><div class="sec"><h3>⬡ EDA Readiness Score</h3><div style="display:flex;align-items:center;gap:16px;margin-top:6px"><div style="font-size:44px;font-weight:800;color:'+(rs>=75?'var(--accent2)':rs>=50?'var(--warn)':'var(--danger)')+'">'+rs+'</div><div><div style="font-size:13px;font-weight:600;margin-bottom:4px">'+rl(rs)+'</div><div style="font-size:11px;color:var(--muted);line-height:1.6">'+(d.readiness_summary||'')+'</div></div></div></div><div class="sec"><h3>📊 Path Overview</h3><p style="font-size:12px;color:var(--muted);line-height:1.6">'+(d.roadmap_summary||'')+'</p><div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"><span style="font-size:11px;padding:3px 9px;border-radius:10px;background:rgba(248,81,73,.1);color:var(--danger)">High: '+d.roadmap.filter(function(r){return r.priority==='High';}).length+'</span><span style="font-size:11px;padding:3px 9px;border-radius:10px;background:rgba(210,153,34,.1);color:var(--warn)">Medium: '+d.roadmap.filter(function(r){return r.priority==='Medium';}).length+'</span></div></div></div><div class="sec"><h3>🗺️ Recommended EDA Roadmap</h3>'+d.roadmap.map(function(step,i){var pc=step.priority==='High'?'ph':step.priority==='Medium'?'pm':'pl';return'<div class="rs"><div class="rsn">'+(i+1)+'</div><div class="rsb"><div class="rstitle">'+step.title+'</div><div class="rswhy">'+step.why+'</div><div class="rsmeta"><span class="rstag '+pc+'">'+step.priority+'</span><span class="rstag">'+step.effort+'</span><span class="rstag">'+step.business_value+'</span>'+(step.expected_insight?'<span class="rstag">→ '+step.expected_insight+'</span>':'')+'</div></div></div>';}).join('')+'</div>';
+}
+
+function renderFn(d){
+  if(!d.findings)return;
+  var cats=[{k:'opportunities',l:'🟢 Top Opportunities',c:'opportunity'},{k:'risks',l:'🔴 Top Risks',c:'risk'},{k:'quality_issues',l:'🟡 Quality Issues',c:'quality'},{k:'analytical_risks',l:'🟣 Analytical Risks',c:'analytical'},{k:'business_observations',l:'🔵 Business Observations',c:'business'}];
+  document.getElementById('c-findings').innerHTML=cats.map(function(cat){var items=d.findings[cat.k]||[];if(!items.length)return'';return'<div class="sec"><h3>'+cat.l+'</h3>'+items.map(function(item){return'<div class="fndcard '+cat.c+'"><div class="fndtitle">'+item.title+'</div><div class="fnddetail">'+item.detail+'</div>'+(item.action?'<div class="fndact">→ '+item.action+'</div>':'')+'<div class="fndmeta">'+(item.impact?'<span class="fndtag">Impact: '+item.impact+'</span>':'')+(item.confidence?'<span class="fndtag">Confidence: '+item.confidence+'%</span>':'')+(item.human_review?'<span class="fndtag" style="border-color:var(--warn);color:var(--warn)">⚠ Human Review</span>':'')+'</div></div>';}).join('')+'</div>';}).join('');
+}
+
+function renderEv(d){
+  var now=new Date().toISOString();
+  document.getElementById('c-evidence').innerHTML='<div style="margin-bottom:14px"><button class="expbtn" onclick="expJSON()">⬇ Export JSON</button></div><div class="sec"><h3>📋 Dataset Metadata</h3><table class="evtable"><thead><tr><th>Property</th><th>Value</th></tr></thead><tbody>'+Object.entries(d.meta||{}).map(function(e){return'<tr><td style="color:var(--muted)">'+e[0]+'</td><td>'+(e[1]!==null?e[1]:'—')+'</td></tr>';}).join('')+'<tr><td style="color:var(--muted)">Analysis Timestamp</td><td>'+now+'</td></tr></tbody></table></div><div class="sec"><h3>✅ Checks Performed</h3><table class="evtable"><thead><tr><th>Check</th><th>Status</th><th>Observation</th></tr></thead><tbody>'+(d.quality&&d.quality.checks||[]).map(function(c){return'<tr><td>'+c.check+'</td><td><span class="tlb '+c.status+'">'+c.status.toUpperCase()+'</span></td><td style="color:var(--muted)">'+c.observation+'</td></tr>';}).join('')+'</tbody></table></div><div class="sec"><h3>🎯 Targets Suggested</h3><table class="evtable"><thead><tr><th>Target</th><th>Type</th><th>Confidence</th><th>Formula</th></tr></thead><tbody>'+(d.targets||[]).map(function(t){return'<tr><td>'+t.name+'</td><td style="color:var(--muted)">'+t.type+'</td><td>'+t.confidence+'%</td><td style="font-family:monospace;font-size:10px;color:var(--accent)">'+(t.formula||'—')+'</td></tr>';}).join('')+'</tbody></table></div><div class="sec"><h3>⬡ Readiness Breakdown</h3><table class="evtable"><thead><tr><th>Dimension</th><th>Score</th></tr></thead><tbody>'+Object.entries(d.readiness_breakdown||{}).map(function(e){return'<tr><td style="color:var(--muted)">'+e[0]+'</td><td>'+e[1]+'/25</td></tr>';}).join('')+'<tr><td><strong>Overall</strong></td><td><strong>'+d.readiness_score+'/100</strong></td></tr></tbody></table></div>';
+}
+
+function expJSON(){if(!RES)return;var b=new Blob([JSON.stringify(RES,null,2)],{type:'application/json'});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download='eda_evidence_pack.json';a.click();}
+
+function updateBadges(d){
+  var q=d.quality;
+  if(q){var fs=q.checks.filter(function(c){return c.status==='fail';}).length,ws=q.checks.filter(function(c){return c.status==='warn';}).length,el=document.getElementById('b-quality');if(fs>0){el.textContent=fs+' FAIL';el.className='nav-badge fail';}else if(ws>0){el.textContent=ws+' WARN';el.className='nav-badge warn';}else{el.textContent='PASS';el.className='nav-badge ok';}}
+  if(d.meta){document.getElementById('b-overview').textContent=fmt(d.meta.rows)+' rows';document.getElementById('b-overview').className='nav-badge ok';}
+  if(d.anatomy){document.getElementById('b-anatomy').textContent=d.anatomy.length+' cols';document.getElementById('b-anatomy').className='nav-badge';}
+  if(d.targets){document.getElementById('b-targets').textContent=d.targets.length+' targets';document.getElementById('b-targets').className='nav-badge ok';}
+  if(d.features){document.getElementById('b-features').textContent=d.features.length+' features';document.getElementById('b-features').className='nav-badge';}
+  if(d.claims){document.getElementById('b-claims').textContent=d.claims.claiming_pct+'%';document.getElementById('b-claims').className='nav-badge';}
+  if(d.roadmap){document.getElementById('b-advisor').textContent=d.roadmap.length+' steps';document.getElementById('b-advisor').className='nav-badge ok';}
+  if(d.findings){var tot=Object.values(d.findings).reduce(function(a,v){return a+v.length;},0);document.getElementById('b-findings').textContent=tot+' findings';document.getElementById('b-findings').className='nav-badge';}
+  document.getElementById('b-evidence').textContent='Ready';document.getElementById('b-evidence').className='nav-badge ok';
+  if(d.coverage){document.getElementById('b-coverage').textContent=d.coverage.avg_coverage+'%';document.getElementById('b-coverage').className='nav-badge';}
+}
+</script>
+</body>
+</html>
